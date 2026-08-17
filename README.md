@@ -1,7 +1,11 @@
 
-# AWS CDK app
+# sage-kb-chatbot-infra
 
-A Github template using the AWS CDK to create an ECS infrastructure project
+AWS CDK infrastructure for the [Sage Internal Knowledge Slack Chatbot][sage-kb-chatbot]. Deploys the ECS Fargate
+service, networking, load balancer, Bedrock Agent, and optional monitoring into AWS.
+
+
+[sage-kb-chatbot]: https://github.com/Sage-Bionetworks-IT/sage-kb-chatbot
 
 # Prerequisites
 
