@@ -10,11 +10,7 @@ jobs:
     with:
       environment: stage
   aws-deploy:
-    needs: test
     uses: "./.github/workflows/aws-deploy.yaml"
-    permissions:
-      id-token: write
-      contents: read
     with:
       role-to-assume: "arn:aws:iam::XXXXXXXX:role/sagebase-github-oidc-myapp-infra"
       role-session-name: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}
