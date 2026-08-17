@@ -4,13 +4,21 @@ on:
   push:
     branches: ['dev']
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   test:
     uses: ./.github/workflows/test.yaml
     with:
       environment: dev
   aws-deploy:
+    needs: test
     uses: "./.github/workflows/aws-deploy.yaml"
+    permissions:
+      id-token: write
+      contents: read
     with:
       role-to-assume: "arn:aws:iam::804034162148:role/sagebase-github-oidc-sage-it-deploy"
       role-session-name: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}
