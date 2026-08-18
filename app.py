@@ -13,7 +13,7 @@ from src.utils import load_context_config
 cdk_app = cdk.App()
 env_name = cdk_app.node.try_get_context("env") or "dev"
 config = load_context_config(env_name=env_name)
-STACK_NAME_PREFIX = f"app-{env_name}"
+STACK_NAME_PREFIX = f"sage-kb-chatbot-{env_name}"
 FQDN = config["FQDN"]
 TAGS = config["TAGS"]
 APP_VERSION = "latest"

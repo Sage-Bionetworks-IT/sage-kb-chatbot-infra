@@ -1,4 +1,4 @@
-VPC_CIDR: 10.254.173.0/24
+VPC_CIDR: 10.254.133.0/24
 FQDN: stage.mydomain.io
 
 # Optional

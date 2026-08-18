@@ -1,4 +1,4 @@
-VPC_CIDR: 10.254.172.0/24
+VPC_CIDR: 10.254.132.0/24
 FQDN: dev.mydomain.io
 
 # Optional
