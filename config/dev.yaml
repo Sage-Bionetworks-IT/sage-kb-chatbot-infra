@@ -15,7 +15,5 @@ FQDN: dev.mydomain.io
 #     ecs_memory_threshold: 90
 
 
-ROVO_MCP_SERVER_URL: https://mcp.atlassian.com/v1/mcp
 ATLASSIAN_CLOUD_ID: beb5b1db-90d5-4034-877f-56ab70fb086f
 ATLASSIAN_SERVICE_USER: sage-kb-chatbot@sagebase.org
-SECRET_ID: infra/slack-agent-router

@@ -70,7 +70,9 @@ app_props = ServiceProps(
         ),
         "ATLASSIAN_CLOUD_ID": config.get("ATLASSIAN_CLOUD_ID", ""),
         "ATLASSIAN_SERVICE_USER": config.get("ATLASSIAN_SERVICE_USER", ""),
-        "SLACK_AGENT_ROUTER_SECRET_ID": config.get("SECRET_ID", ""),
+        "SLACK_AGENT_ROUTER_SECRET_ID": config.get(
+            "SECRET_ID", "infra/slack-agent-router"
+        ),
     },
     container_secrets=[
         ServiceSecret(
