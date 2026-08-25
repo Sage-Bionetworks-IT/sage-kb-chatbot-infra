@@ -84,7 +84,8 @@ class ServiceProps:
         self.container_port = container_port
         self.ecs_task_cpu = ecs_task_cpu
         self.ecs_task_memory = ecs_task_memory
-        if CONTAINER_LOCATION_PATH_ID in container_location:
+        self.build_from_path = container_location.startswith(CONTAINER_LOCATION_PATH_ID)
+        if self.build_from_path:
             container_location = container_location.removeprefix(
                 CONTAINER_LOCATION_PATH_ID
             )

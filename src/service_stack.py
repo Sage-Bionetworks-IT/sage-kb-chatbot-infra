@@ -1,3 +1,5 @@
+import os
+
 import aws_cdk as cdk
 from aws_cdk import Duration as duration
 from aws_cdk import aws_certificatemanager as acm
@@ -90,10 +92,20 @@ class ServiceStack(cdk.Stack):
             execution_role=execution_role,
         )
 
-        image = ecs.ContainerImage.from_registry(props.container_location)
-        if "path://" in props.container_location:  # build container from source
-            location = props.container_location.removeprefix("path://")
+        if props.build_from_path:  # build container from source
+            location = props.container_location
+            if not os.path.isdir(location):
+                raise ValueError(
+                    f"container_location path '{location}' is not a valid directory."
+                )
+            if not os.path.isfile(os.path.join(location, "Dockerfile")):
+                raise FileNotFoundError(
+                    f"No Dockerfile found in container_location path '{location}'. "
+                    f"A Dockerfile is required to build the container from source."
+                )
             image = ecs.ContainerImage.from_asset(location)
+        else:
+            image = ecs.ContainerImage.from_registry(props.container_location)
 
         def _get_secret(scope: Construct, id: str, name: str) -> sm.Secret:
             """Get a secret from the AWS secrets manager"""
