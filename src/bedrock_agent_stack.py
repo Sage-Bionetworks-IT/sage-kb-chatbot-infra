@@ -1,8 +1,11 @@
 import aws_cdk as cdk
-from aws_cdk import aws_bedrock_alpha as bedrock
+from aws_cdk import (
+    aws_bedrock_alpha as bedrock,
+    aws_iam as iam,
+)
 from constructs import Construct
 
-# Instruction the agent uses to orchestrate and synthesize answers.
+# Instructions the agent uses to orchestrate and synthesize answers.
 _AGENT_INSTRUCTION = (
     "You are a helpful assistant for Sage Bionetworks employees. "
     "When a user asks a question, use SearchConfluenceJira to search "
@@ -103,18 +106,49 @@ class BedrockAgentStack(cdk.Stack):
             ),
         )
 
+        model = _resolve_model(foundation_model_id)
+
+        # -----------------------------------------------------------------
+        # IAM role that the Bedrock Agent assumes
+        # -----------------------------------------------------------------
+        # Supply a custom role (rather than letting the L2 Agent auto-create
+        # one) so the trust policy is scoped to this account with an
+        # aws:SourceAccount condition. This guards against the confused-deputy
+        # problem when the stack is deployed across multiple accounts or via
+        # shared pipelines. Because a custom role is supplied, the L2 Agent
+        # does NOT auto-grant model-invoke permissions, so we grant them
+        # explicitly below.
+        agent_role = iam.Role(
+            self,
+            "BedrockAgentRole",
+            role_name=f"{agent_name}-bedrock-agent-role",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock.amazonaws.com",
+                conditions={
+                    "StringEquals": {"aws:SourceAccount": self.account},
+                    "ArnLike": {
+                        "aws:SourceArn": (
+                            f"arn:aws:bedrock:{self.region}:{self.account}:agent/*"
+                        )
+                    },
+                },
+            ),
+        )
+
+        # Allow the agent role to invoke the foundation model (and, for a
+        # cross-region inference profile, the model in all routed regions).
+        model.grant_invoke(agent_role)
+
         # -----------------------------------------------------------------
         # Bedrock Agent
         # -----------------------------------------------------------------
-        # The L2 Agent construct creates its own service role and grants it
-        # permission to invoke the foundation model, so no manual IAM role
-        # is required.
         agent = bedrock.Agent(
             self,
             "SlackAgentRouterAgent",
             agent_name=agent_name,
-            foundation_model=_resolve_model(foundation_model_id),
+            foundation_model=model,
             instruction=_AGENT_INSTRUCTION,
+            existing_role=agent_role,
             description=(
                 "Routes Slack questions to the Confluence/Jira knowledge backend "
                 "via Rovo MCP, synthesizes answers with citations."
@@ -141,7 +175,7 @@ class BedrockAgentStack(cdk.Stack):
         self.agent_id = agent.agent_id
         self.agent_alias_id = agent_alias.alias_id
         self.agent_arn = agent.agent_arn
-        self.agent_role_arn = agent.role.role_arn
+        self.agent_role_arn = agent_role.role_arn
 
         cdk.CfnOutput(
             self,
@@ -165,5 +199,5 @@ class BedrockAgentStack(cdk.Stack):
             self,
             "AgentRoleArn",
             description="IAM role ARN assumed by the Bedrock Agent",
-            value=agent.role.role_arn,
+            value=agent_role.role_arn,
         )

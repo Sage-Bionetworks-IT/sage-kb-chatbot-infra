@@ -49,6 +49,28 @@ def test_bedrock_agent_uses_cross_region_inference_profile():
     assert "us.anthropic.claude-sonnet-4-6" in joined
 
 
+def test_bedrock_agent_uses_plain_foundation_model():
+    """A non-prefixed model resolves to a plain foundation-model ARN (no inference profile)."""
+    app = core.App()
+    stack = BedrockAgentStack(
+        app,
+        "BedrockAgentStack",
+        foundation_model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
+    )
+    template = assertions.Template.from_stack(stack)
+    agents = template.find_resources("AWS::Bedrock::Agent")
+    assert len(agents) == 1
+    foundation_model = next(iter(agents.values()))["Properties"]["FoundationModel"]
+    # Rendered as a foundation-model ARN via Fn::Join, not a plain string.
+    assert "Fn::Join" in foundation_model
+    joined = "".join(
+        part for part in foundation_model["Fn::Join"][1] if isinstance(part, str)
+    )
+    assert "foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0" in joined
+    # Ensure it did NOT resolve to a cross-region inference profile.
+    assert "inference-profile" not in joined
+
+
 def test_bedrock_agent_alias_created():
     app = core.App()
     stack = BedrockAgentStack(app, "BedrockAgentStack")
@@ -74,7 +96,35 @@ def test_bedrock_agent_alias_custom_name():
 
 
 def test_bedrock_agent_role_created():
-    """The L2 Agent construct creates a service role trusted by Bedrock."""
+    """A custom service role is created and trusted by the Bedrock service."""
+    app = core.App()
+    stack = BedrockAgentStack(app, "BedrockAgentStack")
+    template = assertions.Template.from_stack(stack)
+    template.has_resource_properties(
+        "AWS::IAM::Role",
+        {
+            "RoleName": "slack-agent-router-bedrock-agent-role",
+            "AssumeRolePolicyDocument": assertions.Match.object_like(
+                {
+                    "Statement": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
+                                {
+                                    "Effect": "Allow",
+                                    "Principal": {"Service": "bedrock.amazonaws.com"},
+                                    "Action": "sts:AssumeRole",
+                                }
+                            )
+                        ]
+                    )
+                }
+            ),
+        },
+    )
+
+
+def test_bedrock_agent_role_trust_scoped_to_account():
+    """The trust policy restricts assumption to this account (confused-deputy guard)."""
     app = core.App()
     stack = BedrockAgentStack(app, "BedrockAgentStack")
     template = assertions.Template.from_stack(stack)
@@ -87,9 +137,16 @@ def test_bedrock_agent_role_created():
                         [
                             assertions.Match.object_like(
                                 {
-                                    "Effect": "Allow",
-                                    "Principal": {"Service": "bedrock.amazonaws.com"},
                                     "Action": "sts:AssumeRole",
+                                    "Condition": assertions.Match.object_like(
+                                        {
+                                            "StringEquals": {
+                                                "aws:SourceAccount": {
+                                                    "Ref": "AWS::AccountId"
+                                                }
+                                            }
+                                        }
+                                    ),
                                 }
                             )
                         ]
