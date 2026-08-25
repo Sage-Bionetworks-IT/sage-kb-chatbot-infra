@@ -29,18 +29,24 @@ def test_bedrock_agent_custom_name():
     )
 
 
-def test_bedrock_agent_foundation_model():
+def test_bedrock_agent_uses_cross_region_inference_profile():
+    """A ``us.`` prefixed model resolves to a cross-region inference profile."""
     app = core.App()
     stack = BedrockAgentStack(
         app, "BedrockAgentStack", foundation_model_id="us.anthropic.claude-sonnet-4-6"
     )
     template = assertions.Template.from_stack(stack)
-    template.has_resource_properties(
-        "AWS::Bedrock::Agent",
-        {
-            "FoundationModel": "us.anthropic.claude-sonnet-4-6",
-        },
+    # The L2 CrossRegionInferenceProfile renders FoundationModel as an
+    # inference-profile ARN joined with the region-prefixed model id.
+    agents = template.find_resources("AWS::Bedrock::Agent")
+    assert len(agents) == 1
+    foundation_model = next(iter(agents.values()))["Properties"]["FoundationModel"]
+    # It is a Fn::Join referencing the inference profile, not a plain string.
+    assert "Fn::Join" in foundation_model
+    joined = "".join(
+        part for part in foundation_model["Fn::Join"][1] if isinstance(part, str)
     )
+    assert "us.anthropic.claude-sonnet-4-6" in joined
 
 
 def test_bedrock_agent_alias_created():
@@ -68,13 +74,13 @@ def test_bedrock_agent_alias_custom_name():
 
 
 def test_bedrock_agent_role_created():
+    """The L2 Agent construct creates a service role trusted by Bedrock."""
     app = core.App()
     stack = BedrockAgentStack(app, "BedrockAgentStack")
     template = assertions.Template.from_stack(stack)
     template.has_resource_properties(
         "AWS::IAM::Role",
         {
-            "RoleName": "slack-agent-router-bedrock-agent-role",
             "AssumeRolePolicyDocument": assertions.Match.object_like(
                 {
                     "Statement": assertions.Match.array_with(
@@ -94,35 +100,29 @@ def test_bedrock_agent_role_created():
     )
 
 
-def test_bedrock_agent_role_has_invoke_model_policy():
+def test_bedrock_agent_role_can_invoke_model():
+    """The L2 Agent grants its role permission to invoke the model."""
     app = core.App()
     stack = BedrockAgentStack(app, "BedrockAgentStack")
     template = assertions.Template.from_stack(stack)
     template.has_resource_properties(
-        "AWS::IAM::Role",
+        "AWS::IAM::Policy",
         {
-            "Policies": assertions.Match.array_with(
-                [
-                    assertions.Match.object_like(
-                        {
-                            "PolicyName": "BedrockAgentModelAccess",
-                            "PolicyDocument": assertions.Match.object_like(
+            "PolicyDocument": assertions.Match.object_like(
+                {
+                    "Statement": assertions.Match.array_with(
+                        [
+                            assertions.Match.object_like(
                                 {
-                                    "Statement": assertions.Match.array_with(
-                                        [
-                                            assertions.Match.object_like(
-                                                {
-                                                    "Action": "bedrock:InvokeModel",
-                                                    "Effect": "Allow",
-                                                }
-                                            )
-                                        ]
-                                    )
+                                    "Action": assertions.Match.array_with(
+                                        ["bedrock:InvokeModel*"]
+                                    ),
+                                    "Effect": "Allow",
                                 }
-                            ),
-                        }
+                            )
+                        ]
                     )
-                ]
+                }
             ),
         },
     )
@@ -153,7 +153,7 @@ def test_action_group_configured():
 def test_action_group_disabled():
     app = core.App()
     stack = BedrockAgentStack(
-        app, "BedrockAgentStack", search_confluence_jira_state="DISABLED"
+        app, "BedrockAgentStack", search_confluence_jira_enabled=False
     )
     template = assertions.Template.from_stack(stack)
     template.has_resource_properties(

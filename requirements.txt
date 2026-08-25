@@ -1,4 +1,5 @@
 aws-cdk-lib==2.220.0
+aws-cdk.aws-bedrock-alpha==2.220.0a0
 constructs>=10.0.0,<11.0.0
 boto3>=1.40.55
 pyyaml>=6.0
