@@ -4,6 +4,7 @@ import aws_cdk as cdk
 from aws_cdk import Duration as duration
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr_assets as ecr_assets
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
@@ -103,7 +104,12 @@ class ServiceStack(cdk.Stack):
                     f"No Dockerfile found in container_location path '{location}'. "
                     f"A Dockerfile is required to build the container from source."
                 )
-            image = ecs.ContainerImage.from_asset(location)
+            # Fargate runs linux/amd64 by default. Force the build platform so
+            # images built locally on arm64 hosts (e.g. Apple Silicon) run on Fargate.
+            image = ecs.ContainerImage.from_asset(
+                location,
+                platform=ecr_assets.Platform.LINUX_AMD64,
+            )
         else:
             image = ecs.ContainerImage.from_registry(props.container_location)
 
