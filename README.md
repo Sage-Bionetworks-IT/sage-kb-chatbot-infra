@@ -141,6 +141,34 @@ Once created take the ARN of the certificate and set that ARN in environment_var
 
 ![ACM certificate](docs/acm-certificate.png)
 
+## Container image
+
+The container image for a service is set via the `container_location` field on the
+`ServiceProps` object in [app.py](app.py). Two forms are supported:
+
+| Form | Example | Behavior |
+|------|---------|----------|
+| Docker registry reference | `ghcr.io/sage-bionetworks/app:latest`<br>`nginx:1.27`<br>`123456789012.dkr.ecr.us-east-1.amazonaws.com/app:v1.0` | Pulls a pre-built image from a registry (Docker Hub, GHCR, Amazon ECR, etc.). Include an explicit tag; omitting one defaults to `:latest`. |
+| Local build path (`path://`) | `path://docker/MyContainer` | Builds the image from a local Dockerfile at the given path (relative to the project root) at deploy time and uploads it to the CDK asset bucket. The `path://` prefix is stripped before the directory is passed to `ContainerImage.from_asset`. |
+
+```python
+from src.service_props import ServiceProps
+
+# Pull a pre-built image from a registry
+app_props = ServiceProps(
+    container_name="app",
+    container_port=80,
+    container_location="ghcr.io/sage-bionetworks/app:v1.0",
+)
+
+# Build the image from a local Dockerfile at deploy time (supports relative path)
+app_props = ServiceProps(
+    container_name="app",
+    container_port=80,
+    container_location="path://docker/MyContainer",
+)
+```
+
 ## Secrets
 
 Secrets can be manually created in the
