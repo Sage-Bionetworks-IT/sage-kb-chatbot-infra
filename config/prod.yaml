@@ -1,4 +1,4 @@
-VPC_CIDR: 10.254.174.0/24
+VPC_CIDR: 10.254.134.0/24
 FQDN: prod.mydomain.io
 
 # Optional

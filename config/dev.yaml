@@ -1,4 +1,4 @@
-VPC_CIDR: 10.254.172.0/24
+VPC_CIDR: 10.254.132.0/24
 FQDN: dev.mydomain.io
 
 # Optional
@@ -13,3 +13,10 @@ FQDN: dev.mydomain.io
 #   alarms:
 #     ecs_cpu_threshold: 90
 #     ecs_memory_threshold: 90
+
+
+ATLASSIAN_CLOUD_ID: beb5b1db-90d5-4034-877f-56ab70fb086f
+ATLASSIAN_SERVICE_USER: sage-kb-chatbot@sagebase.org
+BEDROCK_AGENT_ID: 128ZMIZICZ
+BEDROCK_AGENT_ALIAS_ID: ZE7EGNPH39
+# SLACK_AGENT_ROUTER_SECRET_ID: infra/slack-agent-router
