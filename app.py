@@ -58,6 +58,9 @@ app_props = ServiceProps(
         ),
         "ATLASSIAN_CLOUD_ID": config.get("ATLASSIAN_CLOUD_ID", ""),
         "ATLASSIAN_SERVICE_USER": config.get("ATLASSIAN_SERVICE_USER", ""),
+        "SLACK_AUTHORIZED_USERGROUP": config.get(
+            "SLACK_AUTHORIZED_USERGROUP", "sage-all"
+        ),
         # Plain string: the secret NAME the app looks up at runtime (not the
         # secret contents). The task role grants GetSecretValue for it.
         "SLACK_AGENT_ROUTER_SECRET_ID": config.get(

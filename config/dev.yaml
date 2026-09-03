@@ -17,3 +17,4 @@ FQDN: dev.mydomain.io
 
 ATLASSIAN_CLOUD_ID: beb5b1db-90d5-4034-877f-56ab70fb086f
 ATLASSIAN_SERVICE_USER: sage-kb-chatbot@sagebase.org
+SLACK_AUTHORIZED_USERGROUP: it-team
