@@ -58,9 +58,10 @@ app_props = ServiceProps(
         ),
         "ATLASSIAN_CLOUD_ID": config.get("ATLASSIAN_CLOUD_ID", ""),
         "ATLASSIAN_SERVICE_USER": config.get("ATLASSIAN_SERVICE_USER", ""),
-        "SLACK_AUTHORIZED_USERGROUP": config.get(
-            "SLACK_AUTHORIZED_USERGROUP", "sage-all"
-        ),
+        # Authorization by Slack User Group (comma-separated handles, no @).
+        # Empty = open to all workspace users. Exclude wins over include.
+        "SLACK_AUTHORIZED_USERGROUPS": config.get("SLACK_AUTHORIZED_USERGROUPS", ""),
+        "SLACK_EXCLUDED_USERGROUPS": config.get("SLACK_EXCLUDED_USERGROUPS", ""),
         # Plain string: the secret NAME the app looks up at runtime (not the
         # secret contents). The task role grants GetSecretValue for it.
         "SLACK_AGENT_ROUTER_SECRET_ID": config.get(
