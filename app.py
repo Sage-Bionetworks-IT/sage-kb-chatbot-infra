@@ -59,9 +59,9 @@ app_props = ServiceProps(
         "ATLASSIAN_CLOUD_ID": config.get("ATLASSIAN_CLOUD_ID", ""),
         "ATLASSIAN_SERVICE_USER": config.get("ATLASSIAN_SERVICE_USER", ""),
         # Authorization by Slack User Group (comma-separated handles, no @).
-        # Empty = open to all workspace users. Exclude wins over include.
+        # Fail-closed: empty denies everyone. Only members of these groups
+        # may use the bot; use "*" to open the bot to all workspace users.
         "SLACK_AUTHORIZED_USERGROUPS": config.get("SLACK_AUTHORIZED_USERGROUPS", ""),
-        "SLACK_EXCLUDED_USERGROUPS": config.get("SLACK_EXCLUDED_USERGROUPS", ""),
         # Plain string: the secret NAME the app looks up at runtime (not the
         # secret contents). The task role grants GetSecretValue for it.
         "SLACK_AGENT_ROUTER_SECRET_ID": config.get(

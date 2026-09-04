@@ -17,3 +17,7 @@ FQDN: dev.mydomain.io
 
 ATLASSIAN_CLOUD_ID: beb5b1db-90d5-4034-877f-56ab70fb086f
 ATLASSIAN_SERVICE_USER: sage-kb-chatbot@sagebase.org
+
+# Authorization: "*" opens the bot to ALL workspace users (dev only).
+# Quote the value — a bare * is a reserved character in YAML.
+SLACK_AUTHORIZED_USERGROUPS: "*"
