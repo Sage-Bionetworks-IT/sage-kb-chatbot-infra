@@ -82,6 +82,68 @@ def test_service_stack_created():
     )
 
 
+def test_container_healthcheck_renders_with_durations():
+    """A HealthCheck with durations renders command + interval/timeout/retries.
+
+    Mirrors the /health probe wired up in app.py so the full shape
+    (command plus the second-valued duration fields) is covered, not
+    just the command.
+    """
+    cdk_app = cdk.App()
+    network_stack = NetworkStack(cdk_app, "NetworkStack", vpc_cidr="10.254.192.0/24")
+    ecs_stack = EcsStack(
+        cdk_app, "EcsStack", vpc=network_stack.vpc, namespace="dev.app.io"
+    )
+
+    app_props = ServiceProps(
+        container_name="app",
+        container_location="ghcr.io/sage-bionetworks/app:1.0",
+        container_port=8080,
+        ecs_task_cpu=256,
+        ecs_task_memory=512,
+        container_healthcheck=cdk.aws_ecs.HealthCheck(
+            command=[
+                "CMD-SHELL",
+                'python -c "import urllib.request; '
+                "urllib.request.urlopen('http://localhost:8080/health')\"",
+            ],
+            interval=cdk.Duration.seconds(30),
+            timeout=cdk.Duration.seconds(5),
+            start_period=cdk.Duration.seconds(10),
+            retries=3,
+        ),
+    )
+    app_stack = ServiceStack(
+        scope=cdk_app,
+        construct_id="app",
+        vpc=network_stack.vpc,
+        cluster=ecs_stack.cluster,
+        props=app_props,
+    )
+
+    template = assertions.Template.from_stack(app_stack)
+    template.has_resource_properties(
+        "AWS::ECS::TaskDefinition",
+        {
+            "ContainerDefinitions": [
+                {
+                    "HealthCheck": {
+                        "Command": [
+                            "CMD-SHELL",
+                            'python -c "import urllib.request; '
+                            "urllib.request.urlopen('http://localhost:8080/health')\"",
+                        ],
+                        "Interval": 30,
+                        "Timeout": 5,
+                        "StartPeriod": 10,
+                        "Retries": 3,
+                    },
+                }
+            ],
+        },
+    )
+
+
 def test_build_from_path_invalid_directory_raises():
     """A path:// location pointing at a non-existent directory raises ValueError."""
     with pytest.raises(ValueError, match="is not a valid directory"):
