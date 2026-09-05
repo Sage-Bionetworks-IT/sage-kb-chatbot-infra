@@ -16,6 +16,9 @@ FQDN = config["FQDN"]
 TAGS = config["TAGS"]
 APP_VERSION = "latest"
 MONITORING_CONFIG = config.get("MONITORING", {})
+CONTAINER_PORT = 8080
+HEALTHCHECK_URL = f"http://localhost:{CONTAINER_PORT}/health"
+
 
 # recursively apply tags to all stack resources
 if TAGS:
@@ -44,9 +47,9 @@ ecs_stack.add_dependency(bedrock_agent_stack)
 
 app_props = ServiceProps(
     container_name="sage-kb-chatbot",
-    container_location=f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
-    # container_location="path://../sage-kb-chatbot",
-    container_port=8080,
+    # container_location=f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
+    container_location="path://../sage-kb-chatbot",
+    container_port=CONTAINER_PORT,
     ecs_task_cpu=256,
     ecs_task_memory=512,
     container_env_vars={
@@ -68,17 +71,19 @@ app_props = ServiceProps(
             "SLACK_AGENT_ROUTER_SECRET_ID", "infra/slack-agent-router"
         ),
     },
-    # temporarily disable: health check endpoint not implemented yet
-    # container_healthcheck=ecs.HealthCheck(
-    #     command=[
-    #         "CMD-SHELL",
-    #         "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\"",
-    #     ],
-    #     interval=cdk.Duration.seconds(30),
-    #     timeout=cdk.Duration.seconds(5),
-    #     start_period=cdk.Duration.seconds(10),
-    #     retries=3,
-    # ),
+    # The app serves GET /health on the container port (8080). urlopen raises
+    # on a non-200 (e.g. 503 when the Slack WebSocket is disconnected), so a
+    # non-healthy status makes the check fail and ECS recycles the task.
+    container_healthcheck=cdk.aws_ecs.HealthCheck(
+        command=[
+            "CMD-SHELL",
+            f"python -c \"import urllib.request; urllib.request.urlopen('{HEALTHCHECK_URL}')\"",
+        ],
+        interval=cdk.Duration.seconds(30),
+        timeout=cdk.Duration.seconds(5),
+        start_period=cdk.Duration.seconds(10),  # allow time to connect to Slack
+        retries=3,
+    ),
 )
 app_stack = ServiceStack(
     scope=cdk_app,
