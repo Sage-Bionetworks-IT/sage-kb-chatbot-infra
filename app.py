@@ -68,17 +68,16 @@ app_props = ServiceProps(
             "SLACK_AGENT_ROUTER_SECRET_ID", "infra/slack-agent-router"
         ),
     },
-    # temporarily disable: health check endpoint not implemented yet
-    # container_healthcheck=ecs.HealthCheck(
-    #     command=[
-    #         "CMD-SHELL",
-    #         "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\"",
-    #     ],
-    #     interval=cdk.Duration.seconds(30),
-    #     timeout=cdk.Duration.seconds(5),
-    #     start_period=cdk.Duration.seconds(10),
-    #     retries=3,
-    # ),
+    container_healthcheck=cdk.aws_ecs.HealthCheck(
+        command=[
+            "CMD-SHELL",
+            "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\"",
+        ],
+        interval=cdk.Duration.seconds(30),
+        timeout=cdk.Duration.seconds(5),
+        start_period=cdk.Duration.seconds(10),
+        retries=3,
+    ),
 )
 app_stack = ServiceStack(
     scope=cdk_app,
