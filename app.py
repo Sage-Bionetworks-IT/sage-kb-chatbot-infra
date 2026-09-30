@@ -1,3 +1,6 @@
+import logging
+import os
+
 import aws_cdk as cdk
 
 from src.bedrock_agent_stack import BedrockAgentStack
@@ -6,13 +9,26 @@ from src.monitoring_stack import MonitoringStack
 from src.network_stack import NetworkStack
 from src.service_props import ServiceProps
 from src.service_stack import ServiceStack
-from src.utils import load_context_config
+from src.utils import load_context_config, resolve_config_value
+
+logging.basicConfig(level=logging.INFO)
 
 cdk_app = cdk.App()
 env_name = cdk_app.node.try_get_context("env") or "dev"
 config = load_context_config(env_name=env_name)
 STACK_NAME_PREFIX = f"sage-kb-chatbot-{env_name}"
-FQDN = config["FQDN"]
+# Required scalars — precedence: OS env var > YAML config. No default: a
+# missing value must fail loudly rather than synthesize bad network/DNS wiring.
+FQDN = resolve_config_value("FQDN", config)
+if not FQDN:
+    raise ValueError(
+        "FQDN is not set. Provide it in the env config or as an OS environment variable."
+    )
+VPC_CIDR = resolve_config_value("VPC_CIDR", config)
+if not VPC_CIDR:
+    raise ValueError(
+        "VPC_CIDR is not set. Provide it in the env config or as an OS environment variable."
+    )
 TAGS = config["TAGS"]
 APP_VERSION = "latest"
 MONITORING_CONFIG = config.get("MONITORING", {})
@@ -25,7 +41,7 @@ if TAGS:
 network_stack = NetworkStack(
     scope=cdk_app,
     construct_id=f"{STACK_NAME_PREFIX}-network",
-    vpc_cidr=config["VPC_CIDR"],
+    vpc_cidr=VPC_CIDR,
 )
 
 bedrock_agent_stack = BedrockAgentStack(
@@ -44,28 +60,43 @@ ecs_stack.add_dependency(bedrock_agent_stack)
 
 app_props = ServiceProps(
     container_name="sage-kb-chatbot",
-    container_location=f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
-    # container_location="path://../sage-kb-chatbot",
+    # Precedence: OS env var > YAML config > default.
+    container_location=resolve_config_value(
+        "CONTAINER_LOCATION",
+        config,
+        f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
+    ),
     container_port=8080,
     ecs_task_cpu=256,
     ecs_task_memory=512,
+    # Each value follows the precedence: OS env var > YAML config > default.
     container_env_vars={
-        "APP_VERSION": APP_VERSION,
-        "BEDROCK_AGENT_ID": bedrock_agent_stack.agent_id,
-        "BEDROCK_AGENT_ALIAS_ID": bedrock_agent_stack.agent_alias_id,
-        "ROVO_MCP_SERVER_URL": config.get(
-            "ROVO_MCP_SERVER_URL", "https://mcp.atlassian.com/v1/mcp"
+        "APP_VERSION": resolve_config_value("APP_VERSION", config, APP_VERSION),
+        # Default is derived from the Bedrock agent stack at synth time; an OS
+        # env var still wins so the value can be overridden for local/testing.
+        "BEDROCK_AGENT_ID": os.environ.get(
+            "BEDROCK_AGENT_ID", bedrock_agent_stack.agent_id
         ),
-        "ATLASSIAN_CLOUD_ID": config.get("ATLASSIAN_CLOUD_ID", ""),
-        "ATLASSIAN_SERVICE_USER": config.get("ATLASSIAN_SERVICE_USER", ""),
+        "BEDROCK_AGENT_ALIAS_ID": os.environ.get(
+            "BEDROCK_AGENT_ALIAS_ID", bedrock_agent_stack.agent_alias_id
+        ),
+        "ROVO_MCP_SERVER_URL": resolve_config_value(
+            "ROVO_MCP_SERVER_URL", config, "https://mcp.atlassian.com/v1/mcp"
+        ),
+        "ATLASSIAN_CLOUD_ID": resolve_config_value("ATLASSIAN_CLOUD_ID", config, ""),
+        "ATLASSIAN_SERVICE_USER": resolve_config_value(
+            "ATLASSIAN_SERVICE_USER", config, ""
+        ),
         # Authorization by Slack User Group (comma-separated handles, no @).
         # Fail-closed: empty denies everyone. Only members of these groups
         # may use the bot; use "*" to open the bot to all workspace users.
-        "SLACK_AUTHORIZED_USERGROUPS": config.get("SLACK_AUTHORIZED_USERGROUPS", ""),
+        "SLACK_AUTHORIZED_USERGROUPS": resolve_config_value(
+            "SLACK_AUTHORIZED_USERGROUPS", config, ""
+        ),
         # Plain string: the secret NAME the app looks up at runtime (not the
         # secret contents). The task role grants GetSecretValue for it.
-        "SLACK_AGENT_ROUTER_SECRET_ID": config.get(
-            "SLACK_AGENT_ROUTER_SECRET_ID", "infra/slack-agent-router"
+        "SLACK_AGENT_ROUTER_SECRET_ID": resolve_config_value(
+            "SLACK_AGENT_ROUTER_SECRET_ID", config, "infra/slack-agent-router"
         ),
     },
     container_healthcheck=cdk.aws_ecs.HealthCheck(
@@ -90,7 +121,11 @@ app_stack = ServiceStack(
 # Grant the ECS task role permission to fetch secrets at runtime.
 # The app calls secretsmanager:GetSecretValue itself on startup (via boto3),
 # so the permission must be on the task role, not the execution role.
-secret_name = config.get("SLACK_AGENT_ROUTER_SECRET_ID", "infra/slack-agent-router")
+# Resolve with the same precedence as the container env var above so the IAM
+# grant matches the secret name the container is actually told to look up.
+secret_name = resolve_config_value(
+    "SLACK_AGENT_ROUTER_SECRET_ID", config, "infra/slack-agent-router"
+)
 secret_arn = f"arn:aws:secretsmanager:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:secret:{secret_name}*"
 app_stack.task_definition.task_role.add_to_policy(
     cdk.aws_iam.PolicyStatement(

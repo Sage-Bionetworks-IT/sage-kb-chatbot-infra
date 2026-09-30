@@ -1,7 +1,43 @@
 import json
+import logging
+import os
 import yaml
 from pathlib import Path
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_config_value(key: str, config: Dict[str, Any], default: Any = None) -> Any:
+    """Resolve a configuration value using the precedence:
+
+        OS environment variable  >  YAML config  >  default
+
+    An OS environment variable named ``key`` takes highest precedence so a
+    developer or CI job can override committed config at runtime without
+    editing files. When the environment variable overrides a value that the
+    YAML config also provided, the override is logged so it is not silent.
+
+    Args:
+      key: the configuration key / environment variable name.
+      config: the merged YAML config dict (from ``load_context_config``).
+      default: value to use when neither the env var nor the config is set.
+    """
+    env_value = os.environ.get(key)
+    if env_value is not None:
+        if key in config and config[key] != env_value:
+            # Log the fact of the override but never the values: this helper is
+            # generic, so a value routed through it may be sensitive. Logging
+            # only the key keeps the guardrail without risking secret leakage.
+            logger.info(
+                "Config '%s' overridden by OS environment variable "
+                "(ignoring the YAML config value)",
+                key,
+            )
+        return env_value
+    if key in config:
+        return config[key]
+    return default
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
