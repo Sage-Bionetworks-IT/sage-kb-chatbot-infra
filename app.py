@@ -44,8 +44,10 @@ ecs_stack.add_dependency(bedrock_agent_stack)
 
 app_props = ServiceProps(
     container_name="sage-kb-chatbot",
-    container_location=f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
-    # container_location="path://../sage-kb-chatbot",
+    container_location=config.get(
+        "CONTAINER_LOCATION",
+        f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
+    ),
     container_port=8080,
     ecs_task_cpu=256,
     ecs_task_memory=512,
