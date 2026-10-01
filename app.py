@@ -120,11 +120,7 @@ app_stack = ServiceStack(
 # Grant the ECS task role permission to fetch secrets at runtime.
 # The app calls secretsmanager:GetSecretValue itself on startup (via boto3),
 # so the permission must be on the task role, not the execution role.
-# Resolve with the same precedence as the container env var above so the IAM
-# grant matches the secret name the container is actually told to look up.
-secret_name = resolve_config_value(
-    "SLACK_AGENT_ROUTER_SECRET_ID", config, "infra/slack-agent-router"
-)
+secret_name = app_props.container_env_vars["SLACK_AGENT_ROUTER_SECRET_ID"]
 secret_arn = f"arn:aws:secretsmanager:{cdk.Aws.REGION}:{cdk.Aws.ACCOUNT_ID}:secret:{secret_name}*"
 app_stack.task_definition.task_role.add_to_policy(
     cdk.aws_iam.PolicyStatement(
