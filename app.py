@@ -1,5 +1,4 @@
 import logging
-import os
 
 import aws_cdk as cdk
 
@@ -74,11 +73,11 @@ app_props = ServiceProps(
         "APP_VERSION": resolve_config_value("APP_VERSION", config, APP_VERSION),
         # Default is derived from the Bedrock agent stack at synth time; an OS
         # env var still wins so the value can be overridden for local/testing.
-        "BEDROCK_AGENT_ID": os.environ.get(
-            "BEDROCK_AGENT_ID", bedrock_agent_stack.agent_id
+        "BEDROCK_AGENT_ID": resolve_config_value(
+            "BEDROCK_AGENT_ID", config, bedrock_agent_stack.agent_id
         ),
-        "BEDROCK_AGENT_ALIAS_ID": os.environ.get(
-            "BEDROCK_AGENT_ALIAS_ID", bedrock_agent_stack.agent_alias_id
+        "BEDROCK_AGENT_ALIAS_ID": resolve_config_value(
+            "BEDROCK_AGENT_ALIAS_ID", config, bedrock_agent_stack.agent_alias_id
         ),
         "ROVO_MCP_SERVER_URL": resolve_config_value(
             "ROVO_MCP_SERVER_URL", config, "https://mcp.atlassian.com/v1/mcp"

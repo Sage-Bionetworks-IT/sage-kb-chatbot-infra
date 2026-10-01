@@ -1,10 +1,102 @@
 import json
+import logging
 import pytest
 import tempfile
 import yaml
 from pathlib import Path
 
-from src.utils import _deep_merge, load_context_config
+from src.utils import _deep_merge, load_context_config, resolve_config_value
+
+
+class TestResolveConfigValue:
+    """Test suite for the resolve_config_value function.
+
+    Precedence: OS environment variable > YAML config > default.
+    """
+
+    def test_env_var_takes_highest_precedence(self, monkeypatch):
+        """An env var wins over both config and default."""
+        monkeypatch.setenv("FQDN", "env.example.com")
+        config = {"FQDN": "config.example.com"}
+        assert (
+            resolve_config_value("FQDN", config, default="default.example.com")
+            == "env.example.com"
+        )
+
+    def test_env_var_wins_when_key_absent_from_config(self, monkeypatch):
+        """An env var is returned even when the key is not in config."""
+        monkeypatch.setenv("FQDN", "env.example.com")
+        assert resolve_config_value("FQDN", {}, default="default") == "env.example.com"
+
+    def test_config_used_when_no_env_var(self, monkeypatch):
+        """Config value is used when no env var is set."""
+        monkeypatch.delenv("FQDN", raising=False)
+        config = {"FQDN": "config.example.com"}
+        assert (
+            resolve_config_value("FQDN", config, default="default")
+            == "config.example.com"
+        )
+
+    def test_default_used_when_no_env_var_and_no_config(self, monkeypatch):
+        """Default is returned when neither env var nor config provides the key."""
+        monkeypatch.delenv("FQDN", raising=False)
+        assert resolve_config_value("FQDN", {}, default="default") == "default"
+
+    def test_default_is_none_when_unset(self, monkeypatch):
+        """Default defaults to None when the key is resolvable nowhere."""
+        monkeypatch.delenv("FQDN", raising=False)
+        assert resolve_config_value("FQDN", {}) is None
+
+    def test_env_var_empty_string_overrides_config(self, monkeypatch):
+        """An empty-string env var is still set (not None), so it overrides config."""
+        monkeypatch.setenv("FQDN", "")
+        config = {"FQDN": "config.example.com"}
+        assert resolve_config_value("FQDN", config, default="default") == ""
+
+    def test_logs_when_env_differs_from_config(self, monkeypatch, caplog):
+        """Override is logged when the env value differs from a configured value."""
+        monkeypatch.setenv("FQDN", "env.example.com")
+        config = {"FQDN": "config.example.com"}
+        with caplog.at_level(logging.INFO, logger="src.utils"):
+            resolve_config_value("FQDN", config)
+        assert any(
+            "FQDN" in record.message and "overridden" in record.message
+            for record in caplog.records
+        )
+
+    def test_does_not_log_values_only_key(self, monkeypatch, caplog):
+        """The log message names the key but never the (possibly sensitive) values."""
+        monkeypatch.setenv("SECRET", "env-secret")
+        config = {"SECRET": "config-secret"}
+        with caplog.at_level(logging.INFO, logger="src.utils"):
+            resolve_config_value("SECRET", config)
+        log_text = "\n".join(record.message for record in caplog.records)
+        assert "SECRET" in log_text
+        assert "env-secret" not in log_text
+        assert "config-secret" not in log_text
+
+    def test_no_log_when_env_equals_config(self, monkeypatch, caplog):
+        """No override is logged when the env value matches the configured value."""
+        monkeypatch.setenv("FQDN", "same.example.com")
+        config = {"FQDN": "same.example.com"}
+        with caplog.at_level(logging.INFO, logger="src.utils"):
+            resolve_config_value("FQDN", config)
+        assert caplog.records == []
+
+    def test_no_log_when_key_absent_from_config(self, monkeypatch, caplog):
+        """No override is logged when the env var does not shadow a config value."""
+        monkeypatch.setenv("FQDN", "env.example.com")
+        with caplog.at_level(logging.INFO, logger="src.utils"):
+            resolve_config_value("FQDN", {})
+        assert caplog.records == []
+
+    def test_no_log_when_config_used(self, monkeypatch, caplog):
+        """No override is logged when the config value is used (no env var)."""
+        monkeypatch.delenv("FQDN", raising=False)
+        config = {"FQDN": "config.example.com"}
+        with caplog.at_level(logging.INFO, logger="src.utils"):
+            resolve_config_value("FQDN", config)
+        assert caplog.records == []
 
 
 class TestDeepMerge:
