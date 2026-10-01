@@ -128,6 +128,30 @@ override those in the base configuration file if there are conflicts.
 For example, if both files define `TAGS`, the value from `dev.yaml`
 will take precedence.
 
+### Configuration precedence
+
+Within the merged YAML config described above, individual values may be
+resolved through the `resolve_config_value` helper in
+[`src/utils.py`](./src/utils.py). It applies the following precedence,
+highest first:
+
+1. **OS environment variable** — an environment variable whose name matches
+   the config key wins. This lets a developer or CI job override committed
+   config at runtime without editing files.
+2. **YAML config** — the value from the merged `base.yaml` + environment
+   config (e.g. `dev.yaml`) is used when no matching environment variable is
+   set.
+3. **Built-in default** — the fallback passed to `resolve_config_value` is
+   used when neither the environment variable nor the config provides the key.
+
+Notes:
+
+- An environment variable is considered "set" when it is present, even if its
+  value is an empty string — an empty env var still overrides the YAML value.
+- When an environment variable overrides a value that the YAML config also
+  provided, the override is logged at `INFO`. Only the config key is logged,
+  never the value, so values routed through this helper are not leaked.
+
 
 > [!NOTE]
 > Ensure that `VPC_CIDR` is unique within your AWS organization.
