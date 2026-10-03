@@ -1,43 +1,131 @@
-import json
 import logging
-import os
-import yaml
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple, Type
+
+from pydantic import Field, model_validator
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 logger = logging.getLogger(__name__)
 
+VALID_ENVS = {"dev", "stage", "prod"}
 
-def resolve_config_value(key: str, config: Dict[str, Any], default: Any = None) -> Any:
-    """Resolve a configuration value using the precedence:
 
-        OS environment variable  >  YAML config  >  default
+class Settings(BaseSettings):
+    """Typed deployment configuration.
 
-    An OS environment variable named ``key`` takes highest precedence so a
-    developer or CI job can override committed config at runtime without
-    editing files. When the environment variable overrides a value that the
-    YAML config also provided, the override is logged so it is not silent.
+    Values are resolved with the precedence (highest first):
 
-    Args:
-      key: the configuration key / environment variable name.
-      config: the merged YAML config dict (from ``load_context_config``).
-      default: value to use when neither the env var nor the config is set.
+        OS environment variable  >  {env}.yaml  >  base.yaml  >  field default
+
+    An OS environment variable whose name matches a field (case-insensitive)
+    overrides any value from the YAML files, letting a developer or CI job
+    override committed config at runtime without editing files. The two YAML
+    files are deep-merged so an environment file may override individual nested
+    keys (e.g. a single ``MONITORING`` alarm threshold) while inheriting the
+    rest of the defaults from ``base.yaml``.
+
+    Build an instance with :func:`load_context_config`, which wires the correct
+    per-environment YAML files into the settings sources.
     """
-    env_value = os.environ.get(key)
-    if env_value is not None:
-        if key in config and config[key] != env_value:
-            # Log the fact of the override but never the values: this helper is
-            # generic, so a value routed through it may be sensitive. Logging
-            # only the key keeps the guardrail without risking secret leakage.
-            logger.info(
-                "Config '%s' overridden by OS environment variable "
-                "(ignoring the YAML config value)",
-                key,
+
+    model_config = SettingsConfigDict(
+        extra="allow",
+        case_sensitive=True,
+    )
+
+    # Required scalars — no default: a missing value must fail loudly rather
+    # than synthesize bad network/DNS wiring.
+    FQDN: str = Field(...)
+    VPC_CIDR: str = Field(...)
+
+    # Optional scalars with defaults mirroring the previous app.py fallbacks.
+    APP_VERSION: str = "latest"
+    # Default is derived from APP_VERSION (see validator below) unless an
+    # explicit value is provided via env var or YAML config. None is a sentinel
+    # meaning "not set"; it is replaced before the model is used.
+    CONTAINER_LOCATION: str | None = None
+    BEDROCK_AGENT_ID: str = ""
+    BEDROCK_AGENT_ALIAS_ID: str = ""
+    ROVO_MCP_SERVER_URL: str = "https://mcp.atlassian.com/v1/mcp"
+    ATLASSIAN_CLOUD_ID: str = ""
+    ATLASSIAN_SERVICE_USER: str = ""
+    SLACK_AUTHORIZED_USERGROUPS: str = ""
+    SLACK_AGENT_ROUTER_SECRET_ID: str = "infra/slack-agent-router"
+
+    # Nested free-form structures. Kept as plain dicts so the YAML deep-merge
+    # of base.yaml + {env}.yaml preserves nested defaults (e.g. MONITORING
+    # alarm thresholds) and callers can use dict-style .get() access.
+    TAGS: Dict[str, Any] = Field(default_factory=dict)
+    MONITORING: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _default_container_location(self) -> "Settings":
+        # Preserve the previous behavior: when CONTAINER_LOCATION is not set,
+        # derive it from APP_VERSION so overriding only APP_VERSION still bumps
+        # the image tag.
+        if self.CONTAINER_LOCATION is None:
+            self.CONTAINER_LOCATION = (
+                f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{self.APP_VERSION}"
             )
-        return env_value
-    if key in config:
-        return config[key]
-    return default
+        return self
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        # init kwargs win (used to inject the resolved file paths), then OS env
+        # vars, then the YAML files (base + env, deep-merged). Earlier sources
+        # take precedence, so an env var overrides any YAML value.
+        config_files = init_settings.init_kwargs.pop("_config_files", [])
+        file_source: PydanticBaseSettingsSource
+        if config_files and str(config_files[-1]).endswith(".json"):
+            # JSON env file (base is always YAML; only the env file may be JSON).
+            file_source = _json_then_yaml_source(settings_cls, config_files)
+        else:
+            file_source = YamlConfigSettingsSource(
+                settings_cls, yaml_file=config_files, deep_merge=True
+            )
+        return (init_settings, env_settings, file_source)
+
+
+def _json_then_yaml_source(
+    settings_cls: Type[BaseSettings], config_files: list
+) -> PydanticBaseSettingsSource:
+    """Build a source that deep-merges a YAML base with a JSON env file.
+
+    ``base.yaml`` is always YAML; only the environment-specific file may be
+    JSON. We load each with its matching source and merge them so the behavior
+    matches a homogeneous YAML pair.
+    """
+    yaml_files = [p for p in config_files if str(p).endswith((".yaml", ".yml"))]
+    json_files = [p for p in config_files if str(p).endswith(".json")]
+    yaml_source = YamlConfigSettingsSource(
+        settings_cls, yaml_file=yaml_files, deep_merge=True
+    )
+    json_source = JsonConfigSettingsSource(
+        settings_cls, json_file=json_files, deep_merge=True
+    )
+
+    class _Merged(PydanticBaseSettingsSource):
+        def get_field_value(self, field, field_name):  # pragma: no cover
+            raise NotImplementedError
+
+        def __call__(self) -> Dict[str, Any]:
+            merged = yaml_source()
+            return _deep_merge(merged, json_source())
+
+    return _Merged(settings_cls)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -51,66 +139,50 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-def load_context_config(env_name: str, config_dir: str = "config") -> Dict[str, Any]:
-    """
-    Load AWS CDK context configuration from a YAML or JSON file.
+def load_context_config(env_name: str, config_dir: str = "config") -> Settings:
+    """Load AWS CDK deployment configuration as a typed :class:`Settings`.
+
+    Resolution precedence (highest first):
+        OS environment variable  >  {env}.yaml  >  base.yaml  >  field default
 
     Supports:
-      - .yaml/.yml OR .json (but not both)
-      - base.yaml merged with environment config
-      - Only 'dev', 'stage', or 'prod' environments are valid
+      - ``base.yaml`` (optional) deep-merged with one environment file
+      - the environment file as ``.yaml``/``.yml`` OR ``.json`` (not both)
+      - only ``dev``, ``stage``, or ``prod`` environments
 
     Raises:
-      - ValueError if environment is invalid or multiple config files exist
-      - FileNotFoundError if expected config file not found
+      - ValueError if the environment is invalid or multiple env files exist
+      - FileNotFoundError if no environment file is found
+      - pydantic.ValidationError if a required value (FQDN, VPC_CIDR) is missing
     """
-
-    # ✅ Validate environment name
-    VALID_ENVS = {"dev", "stage", "prod"}
     if env_name not in VALID_ENVS:
         raise ValueError(
             f"Invalid environment '{env_name}'. "
             f"Must be one of: {', '.join(sorted(VALID_ENVS))}"
         )
 
-    # Define possible config paths
-    base_path = Path(config_dir) / "base.yaml"
-    env_yaml = Path(config_dir) / f"{env_name}.yaml"
-    env_yml = Path(config_dir) / f"{env_name}.yml"
-    env_json = Path(config_dir) / f"{env_name}.json"
+    config_path = Path(config_dir)
+    base_yaml = config_path / "base.yaml"
+    env_yaml = config_path / f"{env_name}.yaml"
+    env_yml = config_path / f"{env_name}.yml"
+    env_json = config_path / f"{env_name}.json"
 
-    def read_file(path: Path) -> Dict[str, Any]:
-        """Read YAML or JSON file into a dictionary."""
-        with open(path, "r") as f:
-            if path.suffix in (".yaml", ".yml"):
-                return yaml.safe_load(f) or {}
-            elif path.suffix == ".json":
-                return json.load(f)
-            else:
-                raise ValueError(f"Unsupported config file type: {path.suffix}")
-
-    # Load base config (optional)
-    base_config = {}
-    if base_path.exists():
-        base_config = read_file(base_path)
-
-    # Detect existing env-specific file(s)
-    env_files = [p for p in [env_yaml, env_yml, env_json] if p.exists()]
-
+    env_files = [p for p in (env_yaml, env_yml, env_json) if p.exists()]
     if not env_files:
         raise FileNotFoundError(
             f"No config file found for environment '{env_name}' "
             f"in {config_dir}. Expected one of: {env_yaml}, {env_yml}, {env_json}"
         )
-
     if len(env_files) > 1:
         raise ValueError(
             f"Multiple config files found for environment '{env_name}': {env_files}. "
             f"Use only one (.yaml/.yml OR .json)."
         )
 
-    # Load and merge configs
-    env_config = read_file(env_files[0])
-    merged_config = _deep_merge(base_config, env_config)
+    # base first (lowest file precedence), then the env file (overrides base).
+    config_files = []
+    if base_yaml.exists():
+        config_files.append(base_yaml)
+    config_files.append(env_files[0])
 
-    return merged_config
+    return Settings(_config_files=config_files)

@@ -8,29 +8,22 @@ from src.monitoring_stack import MonitoringStack
 from src.network_stack import NetworkStack
 from src.service_props import ServiceProps
 from src.service_stack import ServiceStack
-from src.utils import load_context_config, resolve_config_value
+from src.utils import load_context_config
 
 logging.basicConfig(level=logging.INFO)
 
 cdk_app = cdk.App()
 env_name = cdk_app.node.try_get_context("env") or "dev"
-config = load_context_config(env_name=env_name)
+# Resolution precedence (highest first): OS env var > {env}.yaml > base.yaml >
+# field default. Required values (FQDN, VPC_CIDR) have no default, so a missing
+# value raises a validation error here rather than synthesizing bad wiring.
+settings = load_context_config(env_name=env_name)
 STACK_NAME_PREFIX = f"sage-kb-chatbot-{env_name}"
-# Required scalars — precedence: OS env var > YAML config. No default: a
-# missing value must fail loudly rather than synthesize bad network/DNS wiring.
-FQDN = resolve_config_value("FQDN", config)
-if not FQDN:
-    raise ValueError(
-        "FQDN is not set. Provide it in the env config or as an OS environment variable."
-    )
-VPC_CIDR = resolve_config_value("VPC_CIDR", config)
-if not VPC_CIDR:
-    raise ValueError(
-        "VPC_CIDR is not set. Provide it in the env config or as an OS environment variable."
-    )
-TAGS = config["TAGS"]
-APP_VERSION = "latest"
-MONITORING_CONFIG = config.get("MONITORING", {})
+FQDN = settings.FQDN
+VPC_CIDR = settings.VPC_CIDR
+TAGS = settings.TAGS
+APP_VERSION = settings.APP_VERSION
+MONITORING_CONFIG = settings.MONITORING
 
 # recursively apply tags to all stack resources
 if TAGS:
@@ -59,44 +52,29 @@ ecs_stack.add_dependency(bedrock_agent_stack)
 
 app_props = ServiceProps(
     container_name="sage-kb-chatbot",
-    # Precedence: OS env var > YAML config > default.
-    container_location=resolve_config_value(
-        "CONTAINER_LOCATION",
-        config,
-        f"ghcr.io/sage-bionetworks-it/sage-kb-chatbot:{APP_VERSION}",
-    ),
+    container_location=settings.CONTAINER_LOCATION,
     container_port=8080,
     ecs_task_cpu=256,
     ecs_task_memory=512,
-    # Each value follows the precedence: OS env var > YAML config > default.
     container_env_vars={
-        "APP_VERSION": resolve_config_value("APP_VERSION", config, APP_VERSION),
-        # Default is derived from the Bedrock agent stack at synth time; an OS
-        # env var still wins so the value can be overridden for local/testing.
-        "BEDROCK_AGENT_ID": resolve_config_value(
-            "BEDROCK_AGENT_ID", config, bedrock_agent_stack.agent_id
+        "APP_VERSION": settings.APP_VERSION,
+        # The agent id/alias default to the values derived from the Bedrock
+        # agent stack at synth time; a config value or OS env var still wins so
+        # they can be overridden for local/testing.
+        "BEDROCK_AGENT_ID": settings.BEDROCK_AGENT_ID or bedrock_agent_stack.agent_id,
+        "BEDROCK_AGENT_ALIAS_ID": (
+            settings.BEDROCK_AGENT_ALIAS_ID or bedrock_agent_stack.agent_alias_id
         ),
-        "BEDROCK_AGENT_ALIAS_ID": resolve_config_value(
-            "BEDROCK_AGENT_ALIAS_ID", config, bedrock_agent_stack.agent_alias_id
-        ),
-        "ROVO_MCP_SERVER_URL": resolve_config_value(
-            "ROVO_MCP_SERVER_URL", config, "https://mcp.atlassian.com/v1/mcp"
-        ),
-        "ATLASSIAN_CLOUD_ID": resolve_config_value("ATLASSIAN_CLOUD_ID", config, ""),
-        "ATLASSIAN_SERVICE_USER": resolve_config_value(
-            "ATLASSIAN_SERVICE_USER", config, ""
-        ),
+        "ROVO_MCP_SERVER_URL": settings.ROVO_MCP_SERVER_URL,
+        "ATLASSIAN_CLOUD_ID": settings.ATLASSIAN_CLOUD_ID,
+        "ATLASSIAN_SERVICE_USER": settings.ATLASSIAN_SERVICE_USER,
         # Authorization by Slack User Group (comma-separated handles, no @).
         # Fail-closed: empty denies everyone. Only members of these groups
         # may use the bot; use "*" to open the bot to all workspace users.
-        "SLACK_AUTHORIZED_USERGROUPS": resolve_config_value(
-            "SLACK_AUTHORIZED_USERGROUPS", config, ""
-        ),
+        "SLACK_AUTHORIZED_USERGROUPS": settings.SLACK_AUTHORIZED_USERGROUPS,
         # Plain string: the secret NAME the app looks up at runtime (not the
         # secret contents). The task role grants GetSecretValue for it.
-        "SLACK_AGENT_ROUTER_SECRET_ID": resolve_config_value(
-            "SLACK_AGENT_ROUTER_SECRET_ID", config, "infra/slack-agent-router"
-        ),
+        "SLACK_AGENT_ROUTER_SECRET_ID": settings.SLACK_AGENT_ROUTER_SECRET_ID,
     },
     container_healthcheck=cdk.aws_ecs.HealthCheck(
         command=[
